@@ -1,58 +1,46 @@
 import websocket
 import json
+import heapq
+import time
+import threading
 
 class OrderBook:
     def __init__(self):
-        
-        self.bids = []
-        self.asks = []
+        self.bids = []  
+        self.asks = []  
 
     def add_bid(self, price, quantity):
-    
-        self.bids.append({"price": price, "quantity": quantity})
-        self.bids.sort(key=lambda x: x["price"], reverse=True)
+        heapq.heappush(self.bids, (-price, quantity))
 
     def add_ask(self, price, quantity):
-        
-        self.asks.append({"price": price, "quantity": quantity})
-        self.asks.sort(key=lambda x: x["price"])
+        heapq.heappush(self.asks, (price, quantity))
 
     def match_orders(self):
-        
         if self.bids and self.asks:
-           
-            best_bid = self.bids[0]["price"]
-            best_ask = self.asks[0]["price"]
+            best_bid = -self.bids[0][0]  
+            best_ask = self.asks[0][0]
 
-           
             if best_bid >= best_ask:
-                
-                matched_quantity = min(self.bids[0]["quantity"], self.asks[0]["quantity"])
+                matched_quantity = min(self.bids[0][1], self.asks[0][1])
+                self.bids[0] = (self.bids[0][0], self.bids[0][1] - matched_quantity)
+                self.asks[0] = (self.asks[0][0], self.asks[0][1] - matched_quantity)
 
-               
-                self.bids[0]["quantity"] -= matched_quantity
-                self.asks[0]["quantity"] -= matched_quantity
+                if self.bids[0][1] == 0:
+                    heapq.heappop(self.bids)
+                if self.asks[0][1] == 0:
+                    heapq.heappop(self.asks)
 
-                
-                if self.bids[0]["quantity"] == 0:
-                    self.bids.pop(0)
-                if self.asks[0]["quantity"] == 0:
-                    self.asks.pop(0)
-
-             
                 return matched_quantity
 
-      
         return 0
 
     def print_order_book(self):
-        # Print the current state of the order book
         print("Bids:")
         for bid in self.bids:
-            print(f"Price: {bid['price']}, Quantity: {bid['quantity']}")
+            print(f"Price: {-bid[0]}, Quantity: {bid[1]}")
         print("Asks:")
         for ask in self.asks:
-            print(f"Price: {ask['price']}, Quantity: {ask['quantity']}")
+            print(f"Price: {ask[0]}, Quantity: {ask[1]}")
 
 def on_message(ws, message):
     trade_data = json.loads(message)
@@ -73,15 +61,31 @@ def on_close(ws, close_status_code, close_msg):
 def on_open(ws, *args):
     print("Opened")
 
+def run_websocket():
+    ws.run_forever()
+
 if __name__ == "__main__":
     symbol = "btcusdt"
     endpoint = f"wss://fstream.binance.com/ws/{symbol}@trade"
 
+    event_timeout = 5
+
     ws = websocket.WebSocketApp(endpoint, on_message=on_message, on_error=on_error, on_close=on_close)
     ws.on_open = on_open
-    ws.run_forever()
 
-   
+    
+    websocket_thread = threading.Thread(target=run_websocket)
+    websocket_thread.start()
+
+    start_time = time.time()
+
+    while time.time() - start_time < event_timeout:
+        time.sleep(1)
+
+    
+    print(f"Stopping after {event_timeout} seconds")
+    ws.close()
+
     order_book = OrderBook()
     order_book.add_bid(180, 12)
     order_book.add_ask(170, 19)
